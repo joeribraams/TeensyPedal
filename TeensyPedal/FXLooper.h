@@ -3,6 +3,8 @@
 
 #include "Arduino.h"
 
+#define LOOPER_MAX_SIZE 441000
+
 class Looper
 {
 public:
@@ -10,11 +12,12 @@ public:
 
 // Constructor and destructor ////////////////////////////////////////////////////////////////
 
-  Looper(uint16_t blockSize, uint32_t maxSize, bool killDry)
+  Looper(uint16_t blockSize, bool killDry)
   {
     this->blockSize = blockSize;
-    this->maxSize = maxSize;
     this->killDry = killDry;
+
+    debounce = millis();
   }
   ~Looper() {}
   
@@ -22,7 +25,7 @@ public:
 // Process a block of samples ////////////////////////////////////////////////////////////////
 
   void processBlock(int16_t * inL, int16_t * inR, int16_t * outL, int16_t * outR)
-  {
+  {  
     for(uint16_t i = 0; i < blockSize; i++)
     {
       if(recording)
@@ -36,8 +39,8 @@ public:
 
       killDry ? dryOut = !playing : dryOut = true;
     
-      outL[i] = (inL[i] * !playing) + (bufferL[bufStep] * playing);
-      outR[i] = (inL[i] * !playing) + (bufferR[bufStep] * playing);
+      outL[i] = (inL[i] * dryOut) + (bufferL[bufStep] * playing);
+      outR[i] = (inL[i] * dryOut) + (bufferR[bufStep] * playing);
     }
   }
 
@@ -58,7 +61,7 @@ public:
   
   void fsHold()
   {
-    if(!blockRec && millis() > (debounce + 50))
+    if(!blockRec && millis() > (debounce + 10))
     {
       recording = true;
       blockRec = true;
@@ -100,15 +103,15 @@ private:
   {
     if(!playing)
     {
-      bufLen < maxSize ? bufLen++ : playing = true;
+      bufLen < LOOPER_MAX_SIZE ? bufLen++ : playing = true;
     }
   }
 
   
 // Stores the samples in PSRAM ////////////////////////////////////////////////////////////////
 
-  EXTMEM int bufferL[maxSize];
-  EXTMEM int bufferR[maxSize];
+  int16_t bufferL[LOOPER_MAX_SIZE];
+  int16_t bufferR[LOOPER_MAX_SIZE];
 
   
 // Place in and length of loop ////////////////////////////////////////////////////////////////
@@ -125,8 +128,8 @@ private:
   bool killDry;
   bool dryOut = true;
   uint32_t debounce;
+  uint32_t lastHold;
   uint16_t blockSize;
-  uint32_t maxSize;
 };
 
 #endif

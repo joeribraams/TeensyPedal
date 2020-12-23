@@ -10,6 +10,7 @@
 
 #include "FxLooper.h"
 
+uint32_t boing;
 
 // Pin Defines ////////////////////////////////////////////////////////////////
 
@@ -29,8 +30,8 @@
 
 // Effect Defines ////////////////////////////////////////////////////////////////
 
-//#define FX0A
-//#define FX1A
+#define FX0A
+#define FX1A
 //#define FX2A
 //#define FX3A
 //#define FX4A
@@ -38,8 +39,8 @@
 //#define FX6A
 //#define FX7A
 
-//#define FX0B
-//#define FX1B
+#define FX0B
+#define FX1B
 //#define FX2B
 //#define FX3B
 //#define FX4B
@@ -77,19 +78,32 @@ AudioRecordQueue     INL;
 AudioRecordQueue     INR;
 AudioPlayQueue       OUTL;
 AudioPlayQueue       OUTR;
+AudioAnalyzePeak     peak_L;
+AudioAnalyzePeak     peak_R;
 AudioConnection      patchCord1(I2SIN, 0, INL, 0);
 AudioConnection      patchCord2(I2SIN, 1, INR, 0);
 AudioConnection      patchCord3(OUTL, 0, I2SOUT, 0);
 AudioConnection      patchCord4(OUTR, 0, I2SOUT, 1);
-
+AudioConnection      patchCord5(I2SIN, 0, peak_L, 0);
+AudioConnection      patchCord6(I2SIN, 1, peak_R, 0);
+//AudioConnection      patchCord3(I2SIN, 0, I2SOUT, 0);
+//AudioConnection      patchCord4(I2SIN, 1, I2SOUT, 1);
 
 // Effect Classes ////////////////////////////////////////////////////////////////
 
 #ifdef FX0A
-Looper looperA(blockSize, 441000, false);
+EXTMEM Looper looperA(blockSize, false);
 #endif
 #ifdef FX1A
-Looper blooperA(blockSize, 22000, true);
+EXTMEM Looper blooperA(blockSize, true);
+#endif
+
+
+#ifdef FX0B
+EXTMEM Looper looperB(blockSize, false);
+#endif
+#ifdef FX1B
+EXTMEM Looper blooperB(blockSize, true);
 #endif
 
 
@@ -120,9 +134,11 @@ void setup()
   fsb.attachPressStart(fsbPressStart);
   fsb.attachLongPressStop(fsbPressStop);
 
-  fsa.setClickTicks(50); // These might require more tweaking.
+  fsa.setDebounceTicks(10);
+  fsa.setClickTicks(10); // These might require more tweaking.
   fsa.setPressTicks(200);
-  fsb.setClickTicks(50);
+  fsa.setDebounceTicks(10);
+  fsb.setClickTicks(10);
   fsb.setPressTicks(200);
 
   wm8731.enable();
@@ -131,7 +147,7 @@ void setup()
 
   delay(1000); // WM8731 needs some time to boot
   
-  AudioMemory(20);
+  AudioMemory(50);
 
   INL.begin();
   INR.begin();
@@ -144,31 +160,33 @@ void setup()
 // Loop ////////////////////////////////////////////////////////////////
 
 void loop()
-{
+{  
+  clipIndicator();
+
   checkPresets();
   
   fsa.tick();
   fsb.tick();
-  
+
   if(INL.available() && INR.available())
   {
     inL = INL.readBuffer();
     inR = INR.readBuffer();
     outL = OUTL.getBuffer();
     outR = OUTL.getBuffer();
-
+  
     switch(presetA)
     {
       #ifdef FX0A
       case 0:
-        looperA.processBlock(inL, inR, midL, midR);
+        looperA.processBlock(inL, inR, outL, outR);
         setLedA(looperA.checkLeds());
         break;
       #endif
 
       #ifdef FX1A
       case 1:
-        blooperA.processBlock(inL, inR, midL, midR);
+        blooperA.processBlock(inL, inR, outL, outR);
         setLedA(blooperA.checkLeds());
         break;
       #endif
@@ -212,8 +230,8 @@ void loop()
       default:
         for(uint16_t i = 0; i < blockSize; i++) // Copy input buffer to output buffer
         {
-          midL[i] = inL[i];
-          midR[i] = inR[i];
+          outL[i] = inL[i];
+          outR[i] = inR[i];
         }
         break;
     } // switch  
@@ -222,14 +240,14 @@ void loop()
     {
       #ifdef FX0B
       case 0:
-        looperB.processBlock(midL, midR, outL, outR);
+        looperB.processBlock(outL, outL, outL, outR);
         setLedB(looperB.checkLeds());
         break;
       #endif
 
       #ifdef FX1B
       case 1:
-        blooperB.processBlock(midL, midR, outL, outR);
+        blooperB.processBlock(outL, outL, outL, outR);
         setLedB(blooperB.checkLeds());
         break;
       #endif
@@ -271,17 +289,13 @@ void loop()
       #endif
 
       default:
-        for(uint16_t i = 0; i < blockSize; i++) // Copy input buffer to output buffer
-        {
-          outL[i] = midL[i];
-          outR[i] = midR[i];
-        }
         break;
-    } // switch  
+    } // switch
      
     OUTL.playBuffer();
     OUTR.playBuffer();
   } // if
+  
   INL.freeBuffer();
   INR.freeBuffer();
 } // loop
@@ -293,6 +307,56 @@ void checkPresets()
 {
   presetA = digitalRead(RSWA0) + (digitalRead(RSWA1) << 1) + (digitalRead(RSWA2) << 2);
   presetB = digitalRead(RSWB0) + (digitalRead(RSWB1) << 1) + (digitalRead(RSWB2) << 2);
+
+  if(oldPresetA != presetA)
+  {
+    switch(oldPresetA) // Here we can "shut down" the previous effect.
+    {
+      #ifdef FX0A
+      case 0:
+        looperA.initLooper();
+        break;
+      #endif
+  
+      #ifdef FX1A
+      case 1:
+        blooperA.initLooper();
+        break;
+      #endif
+      
+      default:
+        break;
+    } // switch
+
+    setLedA(0);
+
+    oldPresetA = presetA;
+  } // if
+
+  if(oldPresetB != presetB)
+  {
+    switch(oldPresetB)
+    {
+      #ifdef FX0B
+      case 0:
+        looperB.initLooper();
+        break;
+      #endif
+  
+      #ifdef FX1A
+      case 1:
+        blooperB.initLooper();
+        break;
+      #endif
+      
+      default:
+        break;
+    } // switch
+    
+  setLedA(0);
+     
+  oldPresetB = presetB;
+  } // if
 } // void checkPresets
 
 
@@ -370,7 +434,13 @@ void fsbClick()
   {
     #ifdef FX0B
     case 0:
-      //
+      looperB.fsClick();
+      break;
+    #endif
+
+    #ifdef FX1B
+    case 1:
+      blooperB.fsClick();
       break;
     #endif
 
@@ -385,7 +455,13 @@ void fsbPressStart()
   { 
     #ifdef FX0B
     case 0:
-      //
+      looperB.fsHold();
+      break;
+    #endif
+
+    #ifdef FX1B
+    case 1:
+      blooperB.fsHold();
       break;
     #endif
 
@@ -400,7 +476,13 @@ void fsbPressStop()
   {
     #ifdef FX0B
     case 0:
-      //
+      looperB.fsStop();
+      break;
+    #endif
+
+    #ifdef FX1B
+    case 1:
+      blooperB.fsStop();
       break;
     #endif
 
@@ -423,3 +505,19 @@ void setLedB(uint8_t i)
   digitalWrite(LBB, !(i & 1));
   digitalWrite(LBR, !((i >> 1) & 1));  
 } // void setLedB
+
+void clipIndicator()
+{
+    if (peak_L.available() && peak_R.available())
+  {
+    if(peak_L.read() > 0.99)
+    {
+      setLedA(3);
+    }
+    
+    if(peak_R.read() > 0.99)
+    {
+      setLedB(3);
+    }
+  }
+};
