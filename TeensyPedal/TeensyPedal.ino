@@ -9,6 +9,7 @@
 #include <OneButton.h>
 
 #include "FxLooper.h"
+#include "FxFeedbacker.h"
 
 uint32_t boing;
 
@@ -32,7 +33,7 @@ uint32_t boing;
 
 #define FX0A
 #define FX1A
-//#define FX2A
+#define FX2A
 //#define FX3A
 //#define FX4A
 //#define FX5A
@@ -97,7 +98,9 @@ EXTMEM Looper looperA(blockSize, false);
 #ifdef FX1A
 EXTMEM Looper blooperA(blockSize, true);
 #endif
-
+#ifdef FX2A
+Feedbacker feedbackerA(blockSize, 1.9, 0.4, 0.01);
+#endif
 
 #ifdef FX0B
 EXTMEM Looper looperB(blockSize, false);
@@ -193,7 +196,8 @@ void loop()
 
       #ifdef FX2A
       case 2:
-        //
+        feedbackerA.processBlock(inL, inR, outL, outR);
+        setLedA(feedbackerA.checkLeds());
         break;
       #endif
 
@@ -378,6 +382,12 @@ void fsaClick()
       break;
     #endif
     
+    #ifdef FX2A
+    case 2:
+      feedbackerA.fsClick();
+      break;
+    #endif
+        
     default:
       break;
   }

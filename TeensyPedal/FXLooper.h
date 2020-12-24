@@ -40,7 +40,7 @@ public:
       killDry ? dryOut = !playing : dryOut = true;
     
       outL[i] = (inL[i] * dryOut) + (bufferL[bufStep] * playing);
-      outR[i] = (inL[i] * dryOut) + (bufferR[bufStep] * playing);
+      outR[i] = (inR[i] * dryOut) + (bufferR[bufStep] * playing);
     }
   }
 
