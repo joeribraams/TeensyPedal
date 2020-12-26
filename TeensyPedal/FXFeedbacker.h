@@ -6,13 +6,13 @@
 
 #include "Arduino.h"
 #include "HCBiquad.h"
+#include "HCTapTempo.h"
 
-#define FEEDBACKER_BUFFERLENGTH 20000
+#define FEEDBACKER_BUFFERLENGTH 44100
 
 class Feedbacker
 {
 public:
-
 
 // Constructor and destructor ////////////////////////////////////////////////////////////////
 
@@ -38,13 +38,11 @@ public:
     blockAvg = 0;
 
     dryInput = inSmooth->process(!bypass);
-    bypassFeedback = fbSmooth->process((bypass ? 0.3 : feedback) * !muteFb);   
+    bypassFeedback = fbSmooth->process((bypass ? 0.4 : feedback) * !muteFb);   
     
     for(uint16_t i = 0; i < blockSize; i++)
     {
       blockAvg += abs(inL[i]) + abs(inR[i]);
-
-
       
       buffer.push((double(inL[i]) + double(inR[i])) / 16384 * dryInput + fb * bypassFeedback);
 
@@ -54,10 +52,9 @@ public:
       outR[i] = inR[i] + fb * wetLevel;
     }
 
-    if(blockAvg / (blockSize * 2)  > thresh && !muteFb)
+    if(blockAvg / (blockSize * 2) > thresh && !muteFb)
     {
       muteFb = true;
-      Serial.println("peak");
       lastPeak = millis();
     }
 
@@ -73,11 +70,18 @@ public:
   void fsClick()
   {
     bypass =! bypass;
+    tempo = tapTempo->tickTempo();
   }
   
   void initFeedbacker()
   {
-
+    dryInput = 0;
+    bypassFeedback = 0.5;
+    fb = 0;
+    muteFb = false;
+    lastPeak = 0;
+    peakSample = 0;
+    bypass = true;
   }
 
 
@@ -85,14 +89,14 @@ public:
 
   uint8_t checkLeds()
   {
-    return !bypass;
+    return millis() % tempo < 10 ? 2 : !bypass;
   }
 
 private:
 
   double saturate(double in)
   {
-    return atan(atan(atan(in))) * 1.05;
+    return atan(atan(atan(in)));
   }
   
 // Stores the samples in PSRAM ////////////////////////////////////////////////////////////////
@@ -105,6 +109,8 @@ private:
   
   Biquad *inSmooth = new Biquad(bq_type_lowpass, 10.0 / 344, 0.5, 0);
   Biquad *fbSmooth = new Biquad(bq_type_lowpass, 10.0 / 344, 0.5, 0);
+
+  TapTempo *tapTempo = new TapTempo(120);
 
 // Stores state of system ////////////////////////////////////////////////////////////////
 
@@ -119,6 +125,8 @@ private:
   uint32_t lastPeak = 0;
   uint16_t peakSample = 0;
   bool bypass = true;
+
+  uint16_t tempo = 500;
 };
 
 #endif

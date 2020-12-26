@@ -10,8 +10,7 @@
 
 #include "FxLooper.h"
 #include "FxFeedbacker.h"
-
-uint32_t boing;
+#include "FxReverse.h"
 
 // Pin Defines ////////////////////////////////////////////////////////////////
 
@@ -42,7 +41,7 @@ uint32_t boing;
 
 #define FX0B
 #define FX1B
-//#define FX2B
+#define FX2B
 //#define FX3B
 //#define FX4B
 //#define FX5B
@@ -72,23 +71,31 @@ uint8_t oldPresetB = 0;
 OneButton fsa = OneButton(FSA, true, false);
 OneButton fsb = OneButton(FSB, true, false);
 
-AudioControlWM8731   wm8731; // Created by Teensy audio tool
+AudioControlWM8731   WM8731; // Created by Teensy audio tool
 AudioInputI2S        I2SIN;
 AudioOutputI2S       I2SOUT;
+AudioInputUSB        USBIN;
+AudioOutputUSB       USBOUT;
+AudioMixer4          MIXERL;
+AudioMixer4          MIXERR;
 AudioRecordQueue     INL;
 AudioRecordQueue     INR;
 AudioPlayQueue       OUTL;
 AudioPlayQueue       OUTR;
-AudioAnalyzePeak     peak_L;
-AudioAnalyzePeak     peak_R;
-AudioConnection      patchCord1(I2SIN, 0, INL, 0);
-AudioConnection      patchCord2(I2SIN, 1, INR, 0);
-AudioConnection      patchCord3(OUTL, 0, I2SOUT, 0);
-AudioConnection      patchCord4(OUTR, 0, I2SOUT, 1);
-AudioConnection      patchCord5(I2SIN, 0, peak_L, 0);
-AudioConnection      patchCord6(I2SIN, 1, peak_R, 0);
-//AudioConnection      patchCord3(I2SIN, 0, I2SOUT, 0);
-//AudioConnection      patchCord4(I2SIN, 1, I2SOUT, 1);
+AudioAnalyzePeak     PEAKL;
+AudioAnalyzePeak     PEAKR;
+AudioConnection      patchCord03(I2SIN, 0, INL, 0);
+AudioConnection      patchCord04(I2SIN, 1, INR, 0);
+AudioConnection      patchCord05(OUTL, 0, USBOUT, 0);
+AudioConnection      patchCord06(OUTR, 0, USBOUT, 1);
+AudioConnection      patchCord07(OUTL, 0, MIXERL, 1);
+AudioConnection      patchCord08(OUTR, 0, MIXERR, 1);
+AudioConnection      patchCord09(USBIN, 0, MIXERL, 0);
+AudioConnection      patchCord10(USBIN, 1, MIXERR, 0);
+AudioConnection      patchCord11(MIXERL, 0, I2SOUT, 0);
+AudioConnection      patchCord12(MIXERR, 0, I2SOUT, 1);
+AudioConnection      patchCord01(MIXERL, 0, PEAKL, 0);
+AudioConnection      patchCord02(MIXERR, 0, PEAKR, 0);
 
 // Effect Classes ////////////////////////////////////////////////////////////////
 
@@ -99,7 +106,10 @@ EXTMEM Looper looperA(blockSize, false);
 EXTMEM Looper blooperA(blockSize, true);
 #endif
 #ifdef FX2A
-Feedbacker feedbackerA(blockSize, 1.9, 0.4, 0.01);
+EXTMEM Feedbacker feedbackerA(blockSize, 1.9, 0.4, 0.05);
+#endif
+#ifdef FX3A
+EXTMEM Reverse reverseA(blockSize);
 #endif
 
 #ifdef FX0B
@@ -108,7 +118,12 @@ EXTMEM Looper looperB(blockSize, false);
 #ifdef FX1B
 EXTMEM Looper blooperB(blockSize, true);
 #endif
-
+#ifdef FX2B
+EXTMEM Feedbacker feedbackerB(blockSize, 1.9, 0.4, 0.05);
+#endif
+#ifdef FX3B
+EXTMEM Reverse reverseB(blockSize);
+#endif
 
 // Setup ////////////////////////////////////////////////////////////////
 
@@ -144,9 +159,18 @@ void setup()
   fsb.setClickTicks(10);
   fsb.setPressTicks(200);
 
-  wm8731.enable();
-  wm8731.inputLevel(0.75); // Roughly gain matched with my preamps
-  wm8731.inputSelect(AUDIO_INPUT_LINEIN);
+  WM8731.enable();
+  WM8731.inputLevel(0.75); // Roughly gain matched with my preamps
+  WM8731.inputSelect(AUDIO_INPUT_LINEIN);
+
+  MIXERL.gain(0, 1);
+  MIXERL.gain(1, 1);
+  MIXERL.gain(2, 0);
+  MIXERL.gain(3, 0);
+  MIXERR.gain(0, 1);
+  MIXERR.gain(1, 1);
+  MIXERR.gain(2, 0);
+  MIXERR.gain(3, 0);
 
   delay(1000); // WM8731 needs some time to boot
   
@@ -164,9 +188,10 @@ void setup()
 
 void loop()
 {  
-  clipIndicator();
-
   checkPresets();
+
+  MIXERL.gain(0, USBIN.volume());
+  MIXERR.gain(0, USBIN.volume());
   
   fsa.tick();
   fsb.tick();
@@ -176,7 +201,7 @@ void loop()
     inL = INL.readBuffer();
     inR = INR.readBuffer();
     outL = OUTL.getBuffer();
-    outR = OUTL.getBuffer();
+    outR = OUTR.getBuffer();
   
     switch(presetA)
     {
@@ -203,7 +228,8 @@ void loop()
 
       #ifdef FX3A
       case 3:
-        //      
+        reverseA.processBlock(inL, inR, outL, outR);
+        setLedA(reverseA.checkLeds());      
         break;
       #endif
 
@@ -244,27 +270,29 @@ void loop()
     {
       #ifdef FX0B
       case 0:
-        looperB.processBlock(outL, outL, outL, outR);
+        looperB.processBlock(outL, outR, outL, outR);
         setLedB(looperB.checkLeds());
         break;
       #endif
 
       #ifdef FX1B
       case 1:
-        blooperB.processBlock(outL, outL, outL, outR);
+        blooperB.processBlock(outL, outR, outL, outR);
         setLedB(blooperB.checkLeds());
         break;
       #endif
 
       #ifdef FX2B
       case 2:
-        //
+        feedbackerB.processBlock(outL, outR, outL, outR);
+        setLedB(feedbackerB.checkLeds());
         break;
       #endif
 
       #ifdef FX3B
       case 3:
-        //      
+        reverseB.processBlock(outL, outR, outL, outR);
+        setLedB(reverseB.checkLeds());      
         break;
       #endif
 
@@ -327,6 +355,18 @@ void checkPresets()
         blooperA.initLooper();
         break;
       #endif
+
+      #ifdef FX2A
+      case 2:
+        feedbackerA.initFeedbacker();
+        break;
+      #endif      
+
+      #ifdef FX3A
+      case 3:
+        reverseA.initReverse();
+        break;
+      #endif 
       
       default:
         break;
@@ -352,7 +392,19 @@ void checkPresets()
         blooperB.initLooper();
         break;
       #endif
-      
+
+      #ifdef FX2B
+      case 2:
+        feedbackerB.initFeedbacker();
+        break;
+      #endif      
+
+      #ifdef FX3B
+      case 3:
+        reverseB.initReverse();
+        break;
+      #endif
+
       default:
         break;
     } // switch
@@ -385,6 +437,12 @@ void fsaClick()
     #ifdef FX2A
     case 2:
       feedbackerA.fsClick();
+      break;
+    #endif
+
+    #ifdef FX3A
+    case 3:
+      reverseA.fsClick();
       break;
     #endif
         
@@ -454,6 +512,18 @@ void fsbClick()
       break;
     #endif
 
+    #ifdef FX2B
+    case 2:
+      feedbackerB.fsClick();
+      break;
+    #endif
+
+    #ifdef FX3B
+    case 3:
+      reverseB.fsClick();
+      break;
+    #endif
+    
     default:
       break;
   }
@@ -506,28 +576,14 @@ void fsbPressStop()
 
 void setLedA(uint8_t i)
 {
+  if(PEAKR.available() && PEAKR.read() > 0.99) i = 3;
   digitalWrite(LAB, !(i & 1));
   digitalWrite(LAR, !((i >> 1) & 1));
 } // void setLedA
 
 void setLedB(uint8_t i)
 {
+  if(PEAKL.available() && PEAKL.read() > 0.99) i = 3;
   digitalWrite(LBB, !(i & 1));
   digitalWrite(LBR, !((i >> 1) & 1));  
 } // void setLedB
-
-void clipIndicator()
-{
-    if (peak_L.available() && peak_R.available())
-  {
-    if(peak_L.read() > 0.99)
-    {
-      setLedA(3);
-    }
-    
-    if(peak_R.read() > 0.99)
-    {
-      setLedB(3);
-    }
-  }
-};

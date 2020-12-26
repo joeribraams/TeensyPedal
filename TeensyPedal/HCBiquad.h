@@ -3,7 +3,8 @@
 
 #include <math.h>
 
-enum {
+enum
+{
   bq_type_lowpass = 0,
   bq_type_highpass,
   bq_type_bandpass,
