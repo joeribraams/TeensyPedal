@@ -31,7 +31,7 @@ public:
 // Process a block of samples ////////////////////////////////////////////////////////////////
 
   void processBlock(int16_t * inL, int16_t * inR, int16_t * outL, int16_t * outR)
-  {  
+  {
     for(uint16_t i = 0; i < blockSize; i++)
     {
       if(recording)
@@ -67,11 +67,12 @@ public:
   
   void fsHold()
   {
-    if(!blockRec && millis() > (debounce + 50))
+    if(!blockRec && millis() > (debounce + 25))
     {
       recording = true;
       blockRec = true;
     }
+    lastHold = millis();
   }
   
   void fsStop()
